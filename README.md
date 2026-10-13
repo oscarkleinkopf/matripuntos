@@ -35,7 +35,7 @@ Para probar la instalación, el origen tiene que ser localhost o HTTPS. Los arch
 npm test
 ```
 
-Eso corre las pruebas de cifrado (ida y vuelta, llave incorrecta, nonces únicos), del marcador y sus reinicios, del bloqueo del PIN y de borrar todo.
+Eso corre las pruebas de cifrado (ida y vuelta, Argon2id, el paso desde PBKDF2, llave incorrecta, nonces únicos), de la invitación (época, vencimiento, un solo uso, fragmento), del marcador y sus reinicios, del bloqueo del PIN y de borrar todo.
 
 A mano, en el navegador:
 
@@ -51,20 +51,21 @@ A mano, en el navegador:
 | Quién | Qué puede | Qué lo frena |
 | --- | --- | --- |
 | Alguien con el teléfono desbloqueado y la app abierta | Lee todo lo que está en pantalla | El cierre automático y el PIN al volver |
-| Alguien que toma el teléfono un momento | Intenta el PIN | PBKDF2 lento, 5 intentos y luego esperas; a la tercera ronda el PIN se borra y hace falta la frase |
-| Alguien que copia la base del navegador | Ataca el cifrado offline | La frase secreta. El PIN no alcanza: un PIN de 6 dígitos se puede probar fuera del teléfono |
+| Alguien que toma el teléfono un momento | Intenta el PIN | 5 intentos y luego una espera que se duplica y queda guardada; a la tercera ronda el PIN se borra y hace falta la frase. Al irse a segundo plano la pantalla se tapa y el cuaderno se cierra |
+| Alguien que copia la base del navegador | Ataca el cifrado offline | La frase secreta. En un espacio nuevo, Argon2id le cuesta memoria. El PIN no alcanza: un PIN de 6 dígitos se puede probar fuera del teléfono |
 | Un servidor futuro | Guardar lo que el cliente le mande | Hoy no hay servidor. El módulo de sincronización está apagado y solo describe sobres de texto cifrado |
-| La red, al cargar la app | Ver que se pidió la app | No viajan quejas. El fragmento de la invitación no se envía en la petición HTTP |
+| La red, al cargar la app | Ver que se pidió la app | No viajan quejas. El fragmento de la invitación no se envía en la petición HTTP, y la app lo quita de la barra al leerlo |
 | El dictado | El fabricante del navegador puede recibir el audio | El aviso está en la pantalla. Matripuntos no llama a un servicio de transcripción. Se puede escribir a mano |
 | Un archivo exportado | Depende de cuál | El cifrado sigue ilegible sin la frase. El archivo en claro es exactamente eso: en claro |
 
 Límites, en corto:
 
 - El PIN es un cierre casual. La frase es el secreto de verdad.
-- PBKDF2-SHA256 con 600000 iteraciones no es resistente a memoria. Un atacante con la base copiada y una frase corta está en ventaja frente a un KDF como Argon2id.
-- JavaScript no puede borrar de la RAM una frase que el motor ya copió.
-- Una invitación no caduca sola. Cambiar la frase vuelve a cifrar y deja inútiles los enlaces y respaldos viejos. El otro teléfono no se entera solo.
-- El fragmento puede quedar en el historial del navegador y en el chat donde se pegó. No lleva la frase, pero lleva la llave envuelta.
+- Los espacios nuevos usan Argon2id (19 MiB, 2 pasadas, 1 carril). Los anteriores siguen con PBKDF2-SHA256 de 600000 iteraciones hasta que se actualizan. Un atacante con la base copiada y una frase corta sigue en ventaja si el espacio no se actualizó, y también si la frase nueva es corta.
+- JavaScript no puede borrar de la RAM una frase que el motor ya copió. El módulo de Argon2id reserva unas 65 MiB porque así está compilado.
+- Cambiar la frase vuelve a envolver la misma llave y sube la época: los códigos `mp1.` viejos se rechazan en un teléfono que ya tiene la época nueva. No reescribe las anotaciones. Un respaldo o un código viejo, con la frase vieja, todavía abre esa misma llave en un teléfono que no conoce la época nueva. Hay que invitar otra vez.
+- Una invitación nueva vence a los 15 minutos y, en cada teléfono, se acepta una vez. El fragmento se quita de la barra al leerlo. Puede quedar en el historial y en el chat. No lleva la frase, pero lleva la llave envuelta. El portapapeles se intenta vaciar a los 45 segundos; otra app puede haberlo leído.
+- El autenticador del teléfono (WebAuthn) no desbloquea. Sin la extensión PRF no hay material para la llave, y esa extensión no está en todos los teléfonos.
 - Quien controle el navegador (extensión, malware, depurador) gana. La CSP y el armado del DOM sin HTML inyectado bajan el riesgo de un script metido en una queja, no el de un navegador ya comprometido.
 - No se puede impedir una captura de pantalla.
 - Si el navegador guarda la frase en una cuenta en la nube, esa copia sale del teléfono.

@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'">
   <title>Matripuntos</title>
   <meta name="description" content="Cuaderno cifrado para la cuenta de quejas y gestos de una pareja.">
   <link rel="manifest" href="/manifest.webmanifest">
@@ -19,6 +19,10 @@
   <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
+  <div id="privacy" hidden>
+    <p class="brand">Matripuntos</p>
+    <p>Contenido oculto.</p>
+  </div>
   <div id="app"></div>
   <p id="toast" role="status"></p>
   <p id="status" role="status"></p>

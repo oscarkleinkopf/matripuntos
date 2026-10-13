@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { b64UrlToBytes } from "../app/js/bytes.js";
 import { PROFILE_AAD } from "../app/js/constants.js";
-import { buildMeta, createVaultSecrets, encryptJson } from "../app/js/crypto.js";
+import { ARGON2, buildMeta, createVaultSecrets, encryptJson } from "../app/js/crypto.js";
 import { buildEncryptedExport, buildPlainExport, parseEncryptedExport, PLAIN_WARNING } from "../app/js/export.js";
 import { decodeInvite, encodeInvite } from "../app/js/invite.js";
 import { DICTATION_NOTICE } from "../app/js/speech.js";
@@ -52,7 +52,18 @@ test("encrypted export has no plaintext and plain export warns", async () => {
   };
   const packed = await encryptJson(secrets.dek, record, record.id);
   const exported = buildEncryptedExport({
-    meta: { ...meta, kdf: { ...meta.kdf, iterations: 600_000 } },
+    meta: {
+      ...meta,
+      kdf: {
+        v: 2,
+        name: "Argon2id",
+        version: ARGON2.version,
+        memory: ARGON2.memoryKiB,
+        iterations: ARGON2.iterations,
+        parallelism: 1,
+        salt: meta.kdf.salt,
+      },
+    },
     records: [{ id: record.id, iv: packed.iv, ciphertext: packed.ciphertext }],
     audios: [],
     exportedAt: "2026-10-13T16:00:00.000Z",

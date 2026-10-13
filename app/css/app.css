@@ -66,6 +66,35 @@ p { margin: 0.4rem 0; }
 
 .quiet { color: var(--soft); font-size: 0.92rem; }
 
+.meter { margin: 0; min-height: 1.3rem; font-size: 0.92rem; }
+
+.meter[data-level="debil"] { color: var(--clay-dark); }
+
+.meter[data-level="justa"] { color: var(--warn); }
+
+.meter[data-level="fuerte"] { color: var(--moss); }
+
+#privacy {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+#privacy[hidden] { display: none; }
+
+body.is-private #app,
+body.is-private #toast,
+body.is-private #status {
+  filter: blur(20px);
+}
+
 .center { text-align: center; }
 
 .footnote {

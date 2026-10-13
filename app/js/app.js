@@ -14,7 +14,11 @@ import {
   buildMeta,
   createVaultSecrets,
   encryptJson,
+  migrateKdf,
+  needsKdfMigration,
   normalizeSecret,
+  ratePassphrase,
+  rewrapWithPassphrase,
   unlockForRewrap,
   unlockWithPassphrase,
   unlockWithPin,
@@ -32,7 +36,19 @@ import {
 } from "./scoring.js";
 import { pinGate, registerPinFailure, registerPinSuccess } from "./lock.js";
 import { deleteEverything } from "./delete-all.js";
-import { decodeInvite, encodeInvite, inviteLink } from "./invite.js";
+import {
+  INVITE_TTL_MS,
+  assertInviteEpoch,
+  assertInviteUnused,
+  decodeInvite,
+  encodeInvite,
+  inviteLink,
+  inviteUseId,
+  readInviteFromLocation,
+  rememberInviteUse,
+} from "./invite.js";
+import { suggestPassphrase } from "./passphrase.js";
+import { CLIPBOARD_COPIED, CLIPBOARD_WARNING, clearClipboardIfMatch, planClipboardClear } from "./clipboard.js";
 import { buildEncryptedExport, buildPlainExport, parseEncryptedExport } from "./export.js";
 import { DICTATION_NOTICE, speechSupport, startDictation } from "./speech.js";
 import { MAX_AUDIO_MS, audioSupport, startRecording } from "./audio.js";
@@ -42,7 +58,6 @@ import {
   loadAllAudio,
   loadAudio,
   openSpace,
-  rotateVault,
   saveEntry,
   verifyAndCommitImport,
 } from "./vault.js";
@@ -66,6 +81,7 @@ const state = {
   lastActivity: 0,
   installEvent: null,
   rewrappable: null,
+  session: 0,
   toast: "",
   pinPress: null,
   busy: false,
@@ -138,6 +154,10 @@ function formatClock(ms) {
 }
 
 function waitLabel(ms) {
+  if (ms < 60_000) {
+    const seconds = Math.max(1, Math.ceil(ms / 1000));
+    return seconds === 1 ? "1 segundo" : `${seconds} segundos`;
+  }
   const minutes = Math.max(1, Math.ceil(ms / 60_000));
   return minutes === 1 ? "1 minuto" : `${minutes} minutos`;
 }
@@ -252,7 +272,29 @@ function leaveTo(screen, patch = {}) {
   render();
 }
 
+function setPrivacyCover(on) {
+  document.body.classList.toggle("is-private", on);
+  const cover = document.querySelector("#privacy");
+  if (cover) cover.hidden = !on;
+  const root = document.querySelector("#app");
+  if (root) root.toggleAttribute("aria-hidden", on);
+}
+
+let clipboardTimer = 0;
+let clipboardSecret = "";
+
+function dropClipboardSecret() {
+  const pending = clipboardSecret;
+  clipboardSecret = "";
+  clearTimeout(clipboardTimer);
+  clipboardTimer = 0;
+  if (pending && navigator.clipboard) void clearClipboardIfMatch(navigator.clipboard, pending);
+  return pending;
+}
+
 function lockNow() {
+  state.session += 1;
+  dropClipboardSecret();
   stopDictation();
   void cancelRecording();
   discardDraftAudio();
@@ -262,18 +304,22 @@ function lockNow() {
   state.records = [];
   state.profile = null;
   state.toast = "";
+  if (!state.meta) return;
   state.screen = state.meta?.pin?.wrappedDek ? "lock" : "phrase";
   render();
 }
 
-async function enterSpace(dek) {
+async function enterSpace(dek, session = state.session) {
+  if (session !== state.session) return;
   const opened = await openSpace(dek, state.meta);
+  if (session !== state.session) return;
   state.dek = dek;
   state.profile = cleanProfile(opened.profile);
   state.records = opened.records;
   state.lastActivity = Date.now();
   state.screen = "home";
   render();
+  if (document.visibilityState === "hidden") lockNow();
 }
 
 function downloadJson(filename, value) {
@@ -287,15 +333,39 @@ function downloadJson(filename, value) {
 }
 
 function readHashInvite() {
-  const hash = location.hash;
-  if (!hash.startsWith("#mp1.")) return null;
-  history.replaceState(null, "", `${location.pathname}${location.search}`);
-  try {
-    return decodeInvite(hash);
-  } catch (error) {
-    state.inviteError = userMessage(error);
-    return null;
-  }
+  const result = readInviteFromLocation(
+    location,
+    (nextUrl) => history.replaceState(null, "", nextUrl),
+    (hash) => decodeInvite(hash),
+  );
+  if (result.error) state.inviteError = userMessage(result.error);
+  return result.invite;
+}
+
+function watchPassphrase(input) {
+  const meter = el("p", { class: "meter", "aria-live": "polite" });
+  const paint = () => {
+    if (!input.value) {
+      meter.dataset.level = "";
+      meter.textContent = "";
+      return;
+    }
+    const rated = ratePassphrase(input.value);
+    meter.dataset.level = rated.level;
+    meter.textContent = `Fortaleza: ${rated.label}.`;
+  };
+  input.addEventListener("input", paint);
+  return meter;
+}
+
+async function applySuggestion(input, meter) {
+  const phrase = await suggestPassphrase();
+  input.value = phrase;
+  input.type = "text";
+  const toggle = input.parentElement?.querySelector(".text-btn");
+  if (toggle) toggle.textContent = "Ocultar";
+  input.dispatchEvent(new Event("input"));
+  if (meter) meter.textContent = `Fortaleza: ${ratePassphrase(phrase).label}. Anótala fuera del teléfono.`;
 }
 
 function indexedDbAdapter() {
@@ -365,12 +435,23 @@ async function installApp() {
 function renderCreate(root) {
   const phrase = secretInput("phrase", "new-password");
   const again = secretInput("phrase2", "new-password");
+  const meter = watchPassphrase(phrase.input);
   const pin = el("input", { id: "pin", inputmode: "numeric", autocomplete: "off", maxlength: "6", pattern: "[0-9]{6}", required: true });
   const pin2 = el("input", { id: "pin2", inputmode: "numeric", autocomplete: "off", maxlength: "6", pattern: "[0-9]{6}", required: true });
+  const suggest = el("button", {
+    class: "text-btn",
+    type: "button",
+    text: "Sugerir una frase",
+    onclick: () => {
+      void applySuggestion(phrase.input, meter).catch((error) => showFormError(form, userMessage(error)));
+    },
+  });
   const form = el("form", { class: "stack", autocomplete: "off" }, [
     errorLine(),
     field("Frase secreta", phrase.input, phrase.toggle),
-    el("p", { class: "quiet", text: "Una frase larga que solo ustedes dos sepan. No la pongas en un chat. Si el navegador ofrece guardarla en una cuenta, esa copia sale del teléfono." }),
+    meter,
+    suggest,
+    el("p", { class: "quiet", text: "La sugerencia son 6 palabras en inglés, al azar, de una lista que viaja con la app. Anótalas fuera del teléfono. No las mandes por chat. Si el navegador ofrece guardar la frase en una cuenta, esa copia sale del teléfono." }),
     field("Repite la frase", again.input, again.toggle),
     field("Tu nombre en el marcador", el("input", { id: "nickA", maxlength: "24", placeholder: "Tu nombre", autocomplete: "off" })),
     field("El de tu pareja", el("input", { id: "nickB", maxlength: "24", placeholder: "Nombre de tu pareja", autocomplete: "off" })),
@@ -399,8 +480,10 @@ async function onCreate(form) {
     const pin = assertPin(form.querySelector("#pin").value);
     if (pin !== form.querySelector("#pin2").value.trim()) throw new MpError("pin", "Los PIN no coinciden.");
     if (await getMeta()) throw new MpError("exists", "En este teléfono ya hay un espacio.");
+    const session = state.session;
     setBusy(true, "Derivando la llave en este teléfono… puede tardar un poco.");
     const secrets = await createVaultSecrets(phrase, pin);
+    if (session !== state.session) return;
     const profile = cleanProfile({
       nickA: data.get("nickA") || form.querySelector("#nickA").value,
       nickB: form.querySelector("#nickB").value,
@@ -409,6 +492,7 @@ async function onCreate(form) {
     const profilePacked = await encryptJson(secrets.dek, profile, PROFILE_AAD);
     const meta = buildMeta({ secrets, profile: profilePacked, createdAt: new Date().toISOString() });
     await saveMeta(meta);
+    if (session !== state.session) return;
     form.reset();
     state.meta = meta;
     state.dek = secrets.dek;
@@ -418,6 +502,7 @@ async function onCreate(form) {
     state.toast = "Listo. La frase se la dices a tu pareja en persona. Desde Ajustes puedes invitarla.";
     state.screen = "home";
     render();
+    if (document.visibilityState === "hidden") lockNow();
   } catch (error) {
     showFormError(form, userMessage(error));
   } finally {
@@ -430,7 +515,7 @@ function renderJoin(root) {
   const nodes = [
     errorLine(),
     el("p", { class: "notice", text: "La invitación trae la llave del espacio, no las quejas. Este teléfono parte con el cuaderno vacío. Para copiar lo ya anotado, restauren un respaldo cifrado. La sincronización automática todavía no existe." }),
-    el("p", { class: "notice", text: "El enlace usa el fragmento (#), que el navegador no envía al servidor. Igual puede quedar en el historial. No incluye la frase secreta: esa se dice en persona." }),
+    el("p", { class: "notice", text: "El enlace usa el fragmento (#), que el navegador no envía al servidor. Esta app lo quita de la barra al leerlo. Igual puede quedar en el historial. El código vence pronto y solo se acepta una vez en este teléfono. No incluye la frase secreta: esa se dice en persona." }),
   ];
   if (!state.pendingInvite) {
     nodes.push(field("Código o enlace de invitación", el("textarea", { id: "code", required: true, spellcheck: "false", autocapitalize: "off" })));
@@ -461,14 +546,20 @@ async function onJoin(form) {
     const pin = assertPin(form.querySelector("#pin").value);
     if (pin !== form.querySelector("#pin2").value.trim()) throw new MpError("pin", "Los PIN no coinciden.");
     const invite = state.pendingInvite || decodeInvite(form.querySelector("#code").value);
+    const useId = await inviteUseId(invite);
+    assertInviteUnused(localStorage, useId);
+    if (state.meta && state.meta.spaceId === invite.spaceId) assertInviteEpoch(invite, state.meta.epoch || 0);
+    const session = state.session;
     setBusy(true, "Abriendo la invitación…");
     const opened = await unlockForRewrap(invite, phrase);
+    if (session !== state.session) return;
     const pinState = await wrapDekWithPin(opened.extractable, pin);
     const dek = opened.dek;
     const meta = {
       v: 1,
       spaceId: invite.spaceId,
       createdAt: invite.createdAt,
+      epoch: invite.epoch || 0,
       kdf: invite.kdf,
       wrappedDek: invite.wrappedDek,
       verifier: invite.verifier,
@@ -476,11 +567,13 @@ async function onJoin(form) {
       pin: pinState,
     };
     await saveMeta(meta);
+    rememberInviteUse(localStorage, useId);
+    if (session !== state.session) return;
     form.reset();
     state.meta = meta;
     state.pendingInvite = null;
     state.toast = "La llave quedó en este teléfono. El cuaderno está vacío hasta que restauren un respaldo.";
-    await enterSpace(dek);
+    await enterSpace(dek, session);
   } catch (error) {
     showFormError(form, userMessage(error));
   } finally {
@@ -517,14 +610,17 @@ async function onRestore(form) {
     const phrase = assertPassphrase(form.querySelector("#phrase").value);
     const pin = assertPin(form.querySelector("#pin").value);
     if (pin !== form.querySelector("#pin2").value.trim()) throw new MpError("pin", "Los PIN no coinciden.");
+    const session = state.session;
     setBusy(true, "Descifrando el respaldo en este teléfono…");
     const parsed = parseEncryptedExport(await file.text());
-    const dek = await unlockWithPassphrase(parsed, phrase);
-    const pinState = await wrapDekWithPin(dek, pin);
-    const imported = await verifyAndCommitImport(dek, parsed, pinState);
+    const opened = await unlockForRewrap(parsed, phrase);
+    if (session !== state.session) return;
+    const pinState = await wrapDekWithPin(opened.extractable, pin);
+    const imported = await verifyAndCommitImport(opened.dek, parsed, pinState);
+    if (session !== state.session) return;
     state.meta = imported.meta;
     state.toast = "Respaldo restaurado. El PIN nuevo es solo de este teléfono.";
-    await enterSpace(dek);
+    await enterSpace(opened.dek, session);
   } catch (error) {
     showFormError(form, userMessage(error));
   } finally {
@@ -536,6 +632,7 @@ function renderConflict(root) {
   page(
     root,
     el("h1", { text: "Ya hay un espacio aquí" }),
+    state.inviteError ? el("p", { class: "error", text: state.inviteError }) : null,
     el("p", { text: "Este teléfono ya tiene un cuaderno. Unirte a otro lo reemplazaría. Si quieres hacerlo, primero borra todo en este dispositivo. Eso no borra el teléfono de tu pareja." }),
     el("div", { class: "stack" }, [
       el("button", { class: "btn", type: "button", text: "Volver al mío", onclick: () => leaveTo(state.meta?.pin?.wrappedDek ? "lock" : "phrase") }),
@@ -563,19 +660,22 @@ async function onPhrase(form) {
   showFormError(form, "");
   try {
     const phrase = assertPassphrase(form.querySelector("#phrase").value);
+    const session = state.session;
     setBusy(true, "Abriendo…");
     const hadPin = Boolean(state.meta?.pin?.wrappedDek);
+    const migrating = needsKdfMigration(state.meta);
     form.reset();
-    if (!hadPin) {
+    if (!hadPin || migrating) {
       const opened = await unlockForRewrap(state.meta, phrase);
+      if (session !== state.session) return;
       state.dek = opened.dek;
       state.rewrappable = opened.extractable;
-      state.screen = "set-pin";
+      state.screen = migrating ? "migrate" : "set-pin";
       render();
       return;
     }
     const dek = await unlockWithPassphrase(state.meta, phrase);
-    await enterSpace(dek);
+    await enterSpace(dek, session);
   } catch (error) {
     showFormError(form, userMessage(error));
   } finally {
@@ -603,11 +703,74 @@ async function onSetPin(form) {
   try {
     const pin = assertPin(form.querySelector("#pin").value);
     if (pin !== form.querySelector("#pin2").value.trim()) throw new MpError("pin", "Los PIN no coinciden.");
+    const session = state.session;
     setBusy(true, "Guardando el PIN…");
     state.meta.pin = await wrapDekWithPin(state.rewrappable, pin);
+    if (session !== state.session) return;
     state.rewrappable = null;
     await saveMeta(state.meta);
-    await enterSpace(state.dek);
+    await enterSpace(state.dek, session);
+  } catch (error) {
+    showFormError(form, userMessage(error));
+  } finally {
+    setBusy(false);
+  }
+}
+
+function renderMigrate(root) {
+  const phrase = secretInput("phrase", "current-password");
+  const form = el("form", { class: "stack" }, [
+    errorLine(),
+    el("p", { class: "notice", text: "Este espacio usa el cifrado anterior. Pasarlo a Argon2id pide más memoria a quien intente adivinar la frase. La frase no cambia y las anotaciones no se reescriben. El PIN de este teléfono se vuelve a envolver." }),
+    field("Frase secreta", phrase.input, phrase.toggle),
+    field("PIN de este teléfono", el("input", { id: "pin", inputmode: "numeric", maxlength: "6", autocomplete: "off", required: true })),
+    field("Repite el PIN", el("input", { id: "pin2", inputmode: "numeric", maxlength: "6", autocomplete: "off", required: true })),
+    el("button", { class: "btn primary", type: "submit", text: "Actualizar cifrado" }),
+    el("button", { class: "btn", type: "button", text: "Ahora no", onclick: () => skipMigration() }),
+  ]);
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void onMigrate(form);
+  });
+  page(root, el("h1", { text: "Actualizar cifrado" }), form);
+}
+
+function skipMigration() {
+  if (!state.meta?.pin?.wrappedDek && state.rewrappable && state.dek) {
+    state.screen = "set-pin";
+    render();
+    return;
+  }
+  state.rewrappable = null;
+  if (state.dek) {
+    void enterSpace(state.dek, state.session);
+    return;
+  }
+  leaveTo(state.meta?.pin?.wrappedDek ? "lock" : "phrase");
+}
+
+async function onMigrate(form) {
+  showFormError(form, "");
+  try {
+    const phrase = assertPassphrase(form.querySelector("#phrase").value);
+    const pin = assertPin(form.querySelector("#pin").value);
+    if (pin !== form.querySelector("#pin2").value.trim()) throw new MpError("pin", "Los PIN no coinciden.");
+    const session = state.session;
+    setBusy(true, "Pasando el cifrado a Argon2id…");
+    const next = await migrateKdf(state.meta, phrase, pin);
+    if (session !== state.session) return;
+    state.meta = {
+      ...state.meta,
+      kdf: next.kdf,
+      wrappedDek: next.wrappedDek,
+      pin: next.pin,
+      epoch: next.epoch,
+    };
+    state.rewrappable = null;
+    await saveMeta(state.meta);
+    form.reset();
+    state.toast = "Cifrado actualizado. La frase sigue siendo la misma.";
+    await enterSpace(next.dek, session);
   } catch (error) {
     showFormError(form, userMessage(error));
   } finally {
@@ -684,10 +847,12 @@ async function submitPin(pin, paintError) {
   }
   setBusy(true, "Revisando el PIN…");
   try {
+    const session = state.session;
     const dek = await unlockWithPin(state.meta, pin);
+    if (session !== state.session) return;
     state.meta.pin = registerPinSuccess(state.meta.pin);
     await saveMeta(state.meta);
-    await enterSpace(dek);
+    await enterSpace(dek, session);
   } catch (error) {
     if (error instanceof MpError && error.code === "pin-mismatch") {
       const next = registerPinFailure(state.meta.pin, Date.now());
@@ -726,6 +891,9 @@ function renderHome(root) {
   const list = recent.length
     ? el("div", { class: "list" }, recent.map((record) => recordRow(record, "home")))
     : el("p", { class: "empty", text: "Todavía no hay nada en este período. Si quieren, partan por un gesto." });
+  const migration = needsKdfMigration(state.meta)
+    ? el("p", { class: "notice", text: "Este espacio sigue con el cifrado anterior. En Ajustes puedes pasarlo a Argon2id. La frase no cambia." })
+    : null;
   page(
     root,
     el("header", { class: "mast" }, [
@@ -736,6 +904,7 @@ function renderHome(root) {
       ]),
       el("button", { class: "text-btn", type: "button", text: "Ajustes", onclick: () => leaveTo("settings") }),
     ]),
+    migration,
     el("div", { class: "switch", role: "tablist" }, [
       periodButton("week", "Semana"),
       periodButton("month", "Mes"),
@@ -1090,6 +1259,9 @@ function renderSettings(root) {
     void onSettings(form);
   });
   const buttons = [
+    needsKdfMigration(state.meta)
+      ? el("button", { class: "btn", type: "button", text: "Actualizar cifrado", onclick: () => leaveTo("migrate") })
+      : null,
     el("button", { class: "btn", type: "button", text: "Invitar a tu pareja", onclick: () => leaveTo("invite") }),
     el("button", { class: "btn", type: "button", text: "Cambiar frase secreta", onclick: () => leaveTo("rotate") }),
     el("button", { class: "btn", type: "button", text: "Exportar cifrado", onclick: () => void onEncryptedExport(root) }),
@@ -1105,7 +1277,7 @@ function renderSettings(root) {
     form,
     el("div", { class: "stack", id: "export-slot" }, buttons),
     el("h2", { text: "Cómo se protege" }),
-    el("p", { class: "quiet", text: "Los datos se cifran en este teléfono antes de guardarse. La frase deriva la llave. El PIN solo envuelve esa llave aquí y se bloquea si fallas varias veces. No hay analítica ni servidores. Un respaldo cifrado sigue siendo ilegible sin la frase; uno en claro no." }),
+    el("p", { class: "quiet", text: "Los datos se cifran en este teléfono antes de guardarse. La frase deriva la llave con Argon2id en los espacios nuevos; los anteriores pueden actualizarse. El PIN solo envuelve esa llave aquí, espera cada vez más si fallas, y se borra tras varias rondas. Al salir de la app la pantalla se tapa y el cuaderno se cierra. No hay analítica ni servidores. Un respaldo cifrado sigue siendo ilegible sin la frase; uno en claro no." }),
   );
 }
 
@@ -1141,7 +1313,7 @@ async function onEncryptedExport() {
       exportedAt: new Date().toISOString(),
     });
     downloadJson("matripuntos-respaldo.json", exported);
-    state.toast = "Respaldo cifrado listo. Sin la frase no se lee.";
+    state.toast = "Respaldo cifrado listo. Sin la frase no se lee. Si copias el archivo, bórralo del portapapeles.";
     paintToast();
   } catch (error) {
     state.toast = userMessage(error);
@@ -1166,8 +1338,8 @@ function renderInvite(root) {
     root,
     el("button", { class: "text-btn", type: "button", text: "Volver", onclick: () => leaveTo("settings") }),
     el("h1", { text: "Invitar" }),
-    el("p", { class: "notice", text: "Este código lleva la llave envuelta y los apodos cifrados, no la frase y no las quejas. El enlace usa el fragmento (#): el navegador no lo manda al servidor, pero puede quedar en el historial del celular y en el chat donde lo pegues. Díganse la frase en persona, por otro canal, y borren el mensaje después." }),
-    el("p", { class: "quiet", text: "El portapapeles lo pueden ver otras aplicaciones. Si lo copias, pégalo y luego límpialo." }),
+    el("p", { class: "notice", text: `Este código vence en ${INVITE_TTL_MS / 60_000} minutos y, en cada teléfono, solo se acepta una vez. Lleva la llave envuelta, no la frase y no las quejas. El enlace usa el fragmento (#): el navegador no lo manda al servidor, y esta app lo quita de la barra en cuanto lo lee. Igual puede quedar en el historial y en el chat. Díganse la frase en persona.` }),
+    el("p", { class: "quiet", text: CLIPBOARD_WARNING }),
     failure ? el("p", { class: "error", text: failure }) : null,
     codeBox,
     el("div", { class: "stack" }, [
@@ -1182,9 +1354,23 @@ function renderInvite(root) {
 
 async function copyText(value) {
   try {
+    dropClipboardSecret();
+    clipboardSecret = value;
     await navigator.clipboard.writeText(value);
-    state.toast = "Copiado. Bórralo del chat cuando tu pareja lo tenga.";
+    state.toast = CLIPBOARD_COPIED;
+    const plan = planClipboardClear();
+    clipboardTimer = setTimeout(() => {
+      const secret = clipboardSecret;
+      clipboardSecret = "";
+      void clearClipboardIfMatch(navigator.clipboard, secret).then((result) => {
+        state.toast = result.cleared
+          ? "Se vació el portapapeles."
+          : "No pude vaciar el portapapeles. Bórralo a mano.";
+        paintToast();
+      });
+    }, plan.waitMs);
   } catch {
+    clipboardSecret = "";
     state.toast = "No pude copiar solo. Selecciona el código y cópialo a mano.";
   }
   paintToast();
@@ -1202,11 +1388,21 @@ function renderRotate(root) {
   const current = secretInput("current", "current-password");
   const next = secretInput("next", "new-password");
   const again = secretInput("next2", "new-password");
+  const meter = watchPassphrase(next.input);
   const form = el("form", { class: "stack" }, [
     errorLine(),
-    el("p", { class: "notice", text: "Cambiar la frase vuelve a cifrar todo en este teléfono. Las invitaciones y los respaldos viejos dejan de servir. El otro teléfono no se entera solo." }),
+    el("p", { class: "notice", text: "La frase nueva vuelve a envolver la llave. Las anotaciones no se reescriben. Los códigos de invitación anteriores quedan rechazados en este teléfono: invita otra vez a tu pareja y dile la frase por otro canal. Quien ya guardó un código viejo y la frase vieja todavía podría abrir una copia del cuaderno, porque la llave de los datos no cambia." }),
     field("Frase actual", current.input, current.toggle),
     field("Frase nueva", next.input, next.toggle),
+    meter,
+    el("button", {
+      class: "text-btn",
+      type: "button",
+      text: "Sugerir una frase",
+      onclick: () => {
+        void applySuggestion(next.input, meter).catch((error) => showFormError(form, userMessage(error)));
+      },
+    }),
     field("Repite la frase nueva", again.input, again.toggle),
     field("PIN nuevo de este teléfono", el("input", { id: "pin", inputmode: "numeric", maxlength: "6", autocomplete: "off", required: true })),
     field("Repite el PIN", el("input", { id: "pin2", inputmode: "numeric", maxlength: "6", autocomplete: "off", required: true })),
@@ -1228,21 +1424,22 @@ async function onRotate(form) {
     if (next !== normalizeSecret(form.querySelector("#next2").value)) throw new MpError("passphrase-match", "Las frases nuevas no coinciden.");
     const pin = assertPin(form.querySelector("#pin").value);
     if (pin !== form.querySelector("#pin2").value.trim()) throw new MpError("pin", "Los PIN no coinciden.");
-    setBusy(true, "Comprobando la frase y cifrando de nuevo…");
-    await unlockWithPassphrase(state.meta, current);
-    const created = await createVaultSecrets(next, pin);
-    const audios = await loadAllAudio(state.dek);
-    const nextMeta = await rotateVault({
-      meta: state.meta,
-      records: state.records,
-      audios,
-      created,
-      profile: state.profile,
-    });
-    state.meta = nextMeta;
-    state.dek = created.dek;
+    const session = state.session;
+    setBusy(true, "Envolviendo la llave con la frase nueva…");
+    const rotated = await rewrapWithPassphrase(state.meta, current, next, pin);
+    if (session !== state.session) return;
+    state.meta = {
+      ...state.meta,
+      kdf: rotated.kdf,
+      wrappedDek: rotated.wrappedDek,
+      pin: rotated.pin,
+      epoch: rotated.epoch,
+      verifier: rotated.verifier,
+    };
+    await saveMeta(state.meta);
+    state.dek = rotated.dek;
     form.reset();
-    state.toast = "Frase nueva lista. Los respaldos viejos ya no abren.";
+    state.toast = "Frase nueva. Los códigos viejos ya no sirven aquí. Invita otra vez a tu pareja.";
     state.screen = "home";
     render();
   } catch (error) {
@@ -1326,6 +1523,7 @@ const VIEWS = {
   conflict: renderConflict,
   phrase: renderPhrase,
   "set-pin": renderSetPin,
+  migrate: renderMigrate,
   lock: renderLock,
   home: renderHome,
   history: renderHistory,
@@ -1348,16 +1546,29 @@ function render() {
   paintToast();
 }
 
+function hideForBackground() {
+  setPrivacyCover(true);
+  if (state.dek) lockNow();
+}
+
+function showAfterBackground() {
+  setPrivacyCover(false);
+}
+
 function armLock() {
   setInterval(() => {
     if (!state.dek || !state.profile || state.busy) return;
     if (Date.now() - state.lastActivity >= state.profile.autoLockMs) lockNow();
   }, 4000);
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState !== "visible") return;
-    if (!state.dek || !state.profile || state.busy) return;
-    if (Date.now() - state.lastActivity >= state.profile.autoLockMs) lockNow();
+    if (document.visibilityState === "hidden") {
+      hideForBackground();
+      return;
+    }
+    showAfterBackground();
   });
+  window.addEventListener("pagehide", hideForBackground);
+  window.addEventListener("pageshow", showAfterBackground);
   document.addEventListener("pointerdown", noteActivity);
   document.addEventListener("keydown", (event) => {
     noteActivity();
@@ -1378,7 +1589,19 @@ async function boot() {
     state.meta = null;
     state.toast = "No pude leer el espacio de este teléfono.";
   }
+  if (state.pendingInvite) {
+    try {
+      assertInviteUnused(localStorage, await inviteUseId(state.pendingInvite));
+      if (state.meta && state.pendingInvite.spaceId === state.meta.spaceId) {
+        assertInviteEpoch(state.pendingInvite, state.meta.epoch || 0);
+      }
+    } catch (error) {
+      state.inviteError = userMessage(error);
+      state.pendingInvite = null;
+    }
+  }
   if (state.pendingInvite && state.meta) state.screen = "conflict";
+  else if (state.inviteError && state.meta) state.screen = "conflict";
   else if (state.pendingInvite || state.inviteError) state.screen = "join";
   else if (state.meta?.pin?.wrappedDek) state.screen = "lock";
   else if (state.meta) state.screen = "phrase";

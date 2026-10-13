@@ -89,6 +89,7 @@ export async function verifyAndCommitImport(dek, parsed, pinState) {
     v: 1,
     spaceId: parsed.spaceId,
     createdAt: parsed.createdAt,
+    epoch: Number.isInteger(parsed.epoch) ? parsed.epoch : 0,
     kdf: parsed.kdf,
     wrappedDek: parsed.wrappedDek,
     verifier: parsed.verifier,
@@ -101,30 +102,6 @@ export async function verifyAndCommitImport(dek, parsed, pinState) {
     audioRows: parsed.audios.map((row) => toRow(row.id, row, { mime: row.mime })),
   });
   return { meta, profile };
-}
-
-export async function rotateVault({ meta, records, audios, created, profile }) {
-  const recordRows = [];
-  for (const record of records) recordRows.push(await encryptRecord(created.dek, record));
-  const audioRows = [];
-  for (const audio of audios) {
-    const packed = await encryptBytes(created.dek, audio.bytes, audio.id);
-    audioRows.push(toRow(audio.id, packed, { mime: audio.mime }));
-    zeroize(audio.bytes);
-  }
-  const profilePacked = await encryptJson(created.dek, profile, PROFILE_AAD);
-  const nextMeta = {
-    v: 1,
-    spaceId: meta.spaceId,
-    createdAt: meta.createdAt,
-    kdf: created.kdf,
-    wrappedDek: created.wrappedDek,
-    pin: created.pin,
-    verifier: created.verifier,
-    profile: profilePacked,
-  };
-  await commitVault({ meta: nextMeta, recordRows, audioRows });
-  return nextMeta;
 }
 
 export async function persistMeta(meta) {
