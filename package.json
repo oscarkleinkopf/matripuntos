@@ -1,0 +1,16 @@
+{
+  "name": "matripuntos",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Registro compartido de quejas y gestos, cifrado en el dispositivo.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node scripts/dev-server.mjs",
+    "test": "node --test --test-reporter=spec test/*.test.js",
+    "icons": "node scripts/make-icons.mjs"
+  }
+}
