@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Matripuntos">
   <rect width="64" height="64" rx="16" fill="#f7f1ea"/>
-  <circle cx="32" cy="30" r="22" fill="#c4543a"/>
-  <circle cx="24" cy="28" r="4" fill="#f7f1ea"/>
-  <circle cx="40" cy="28" r="4" fill="#f7f1ea"/>
-  <rect x="20" y="38" width="24" height="4" rx="2" fill="#f7f1ea"/>
+  <circle cx="32" cy="32" r="22" fill="#c4543a"/>
+  <rect x="29" y="18" width="6" height="16" rx="3" fill="#f7f1ea"/>
+  <rect x="22" y="23" width="20" height="6" rx="3" fill="#f7f1ea"/>
+  <rect x="22" y="40" width="20" height="6" rx="3" fill="#f7f1ea"/>
 </svg>

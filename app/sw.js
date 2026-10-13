@@ -1,4 +1,4 @@
-const CACHE = "matripuntos-shell-v1";
+const CACHE = "matripuntos-shell-v3";
 
 const SHELL = [
   "/",

@@ -9,8 +9,10 @@ import {
   encryptBytes,
   encryptJson,
   generateDek,
+  unlockForRewrap,
   unlockWithPassphrase,
   unlockWithPin,
+  wrapDekWithPin,
 } from "../app/js/crypto.js";
 
 const weak = { iterations: 1_000, allowWeak: true };
@@ -57,6 +59,16 @@ test("passphrase unwraps and a wrong passphrase does not", async () => {
   await assert.rejects(() => unlockWithPin(secrets, "000000", { allowWeak: true }));
   const pinKey = await unlockWithPin(secrets, "123456", { allowWeak: true });
   assert.deepEqual(await decryptJson(pinKey, packed, "caja"), { ok: true });
+});
+
+test("a rewrap copy can receive a new PIN", async () => {
+  const secrets = await createVaultSecrets("una frase bastante larga", "123456", weak);
+  const opened = await unlockForRewrap(secrets, "una frase bastante larga", { allowWeak: true });
+  const pin = await wrapDekWithPin(opened.extractable, "654321", weak);
+  const material = { ...secrets, pin };
+  const dek = await unlockWithPin(material, "654321", { allowWeak: true });
+  const packed = await encryptJson(dek, { ok: 1 }, "caja");
+  assert.deepEqual(await decryptJson(opened.dek, packed, "caja"), { ok: 1 });
 });
 
 test("production KDF stays at the high iteration floor", async () => {

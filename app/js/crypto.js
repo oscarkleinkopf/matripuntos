@@ -230,6 +230,22 @@ export async function unlockWithPassphrase(material, passphrase, options = {}) {
   return openWithKekMaterial(material, secret, material.kdf, material.wrappedDek, options);
 }
 
+// Chrome refuses wrapKey on a non-extractable key. Callers that must wrap the
+// data key again (a new PIN) get a temporary extractable copy and should drop
+// that reference immediately after wrapping. The session key stays non-extractable.
+export async function unlockForRewrap(material, passphrase, options = {}) {
+  const secret = assertPassphrase(passphrase);
+  assertKdfIterations(material?.kdf?.iterations, options);
+  const kek = await deriveKek(secret, b64ToBytes(material.kdf.salt), material.kdf.iterations, options);
+  const extractable = await unwrapDek(material.wrappedDek, kek, { extractable: true });
+  const dek = await unwrapDek(material.wrappedDek, kek, { extractable: false });
+  const verifier = await decryptJson(dek, material.verifier, VERIFIER_AAD);
+  if (!verifier || verifier.ok !== true) {
+    throw new MpError("decrypt", "El espacio no pasó la verificación.");
+  }
+  return { dek, extractable };
+}
+
 export async function unlockWithPin(material, pin, options = {}) {
   const pinCode = assertPin(pin);
   if (!material?.pin?.wrappedDek || !material?.pin?.kdf) {

@@ -95,15 +95,13 @@ const clay = [196, 84, 58];
 function paint(size, maskable) {
   const buf = Buffer.alloc(size * size * 4);
   fill(buf, size, maskable ? clay : cream);
+  if (!maskable) fillCircle(buf, size, size / 2, size / 2, size * 0.34, clay);
+  const unit = size * (maskable ? 0.032 : 0.042);
   const cx = size / 2;
-  const cy = size * (maskable ? 0.48 : 0.46);
-  const radius = size * (maskable ? 0.26 : 0.34);
-  if (!maskable) fillCircle(buf, size, cx, cy, radius, clay);
-  const dot = size * (maskable ? 0.045 : 0.055);
-  const spread = size * (maskable ? 0.08 : 0.1);
-  fillCircle(buf, size, cx - spread, cy - dot, dot, cream);
-  fillCircle(buf, size, cx + spread, cy - dot, dot, cream);
-  fillRoundRect(buf, size, cx - spread * 1.5, cy + dot * 1.6, spread * 3, dot * 0.9, dot * 0.45, cream);
+  const cy = size / 2;
+  fillRoundRect(buf, size, cx - unit, cy - unit * 4.4, unit * 2, unit * 5.2, unit * 0.7, cream);
+  fillRoundRect(buf, size, cx - unit * 2.6, cy - unit * 2.8, unit * 5.2, unit * 2, unit * 0.7, cream);
+  fillRoundRect(buf, size, cx - unit * 2.6, cy + unit * 1.8, unit * 5.2, unit * 2, unit * 0.7, cream);
   return encodePng(size, buf);
 }
 

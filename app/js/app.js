@@ -15,6 +15,7 @@ import {
   createVaultSecrets,
   encryptJson,
   normalizeSecret,
+  unlockForRewrap,
   unlockWithPassphrase,
   unlockWithPin,
   wrapDekWithPin,
@@ -64,6 +65,7 @@ const state = {
   audioUrls: [],
   lastActivity: 0,
   installEvent: null,
+  rewrappable: null,
   toast: "",
   pinPress: null,
   busy: false,
@@ -81,9 +83,18 @@ function setBusy(busy, label = "") {
   if (node) node.textContent = busy ? label : "";
 }
 
+let toastTimer = 0;
+
 function paintToast() {
   const node = document.querySelector("#toast");
-  if (node) node.textContent = state.toast || "";
+  if (!node) return;
+  node.textContent = state.toast || "";
+  clearTimeout(toastTimer);
+  if (!state.toast) return;
+  toastTimer = setTimeout(() => {
+    state.toast = "";
+    node.textContent = "";
+  }, 4500);
 }
 
 function noteActivity() {
@@ -248,6 +259,7 @@ function lockNow() {
   discardDraftAudio();
   revokePlayback();
   state.dek = null;
+  state.rewrappable = null;
   state.records = [];
   state.profile = null;
   state.toast = "";
@@ -451,8 +463,9 @@ async function onJoin(form) {
     if (pin !== form.querySelector("#pin2").value.trim()) throw new MpError("pin", "Los PIN no coinciden.");
     const invite = state.pendingInvite || decodeInvite(form.querySelector("#code").value);
     setBusy(true, "Abriendo la invitación…");
-    const dek = await unlockWithPassphrase(invite, phrase);
-    const pinState = await wrapDekWithPin(dek, pin);
+    const opened = await unlockForRewrap(invite, phrase);
+    const pinState = await wrapDekWithPin(opened.extractable, pin);
+    const dek = opened.dek;
     const meta = {
       v: 1,
       spaceId: invite.spaceId,
@@ -553,14 +566,16 @@ async function onPhrase(form) {
     const phrase = assertPassphrase(form.querySelector("#phrase").value);
     setBusy(true, "Abriendo…");
     const hadPin = Boolean(state.meta?.pin?.wrappedDek);
-    const dek = await unlockWithPassphrase(state.meta, phrase);
     form.reset();
-    state.dek = dek;
     if (!hadPin) {
+      const opened = await unlockForRewrap(state.meta, phrase);
+      state.dek = opened.dek;
+      state.rewrappable = opened.extractable;
       state.screen = "set-pin";
       render();
       return;
     }
+    const dek = await unlockWithPassphrase(state.meta, phrase);
     await enterSpace(dek);
   } catch (error) {
     showFormError(form, userMessage(error));
@@ -590,7 +605,8 @@ async function onSetPin(form) {
     const pin = assertPin(form.querySelector("#pin").value);
     if (pin !== form.querySelector("#pin2").value.trim()) throw new MpError("pin", "Los PIN no coinciden.");
     setBusy(true, "Guardando el PIN…");
-    state.meta.pin = await wrapDekWithPin(state.dek, pin);
+    state.meta.pin = await wrapDekWithPin(state.rewrappable, pin);
+    state.rewrappable = null;
     await saveMeta(state.meta);
     await enterSpace(state.dek);
   } catch (error) {

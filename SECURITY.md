@@ -36,7 +36,7 @@ Fuera:
 - PIN de 6 dígitos → el mismo KDF, con otra sal, solo en este teléfono.
 - DEK aleatoria de 256 bits. La frase y el PIN envuelven esa DEK. Los registros no se re-cifran al cambiar el PIN.
 - Cada registro y cada audio va con AES-GCM, nonce de 12 bytes al azar, y el id como dato adicional. Un nonce no se reutiliza: cada guardado genera otro.
-- La DEK de sesión no es extraíble. Hace falta para cifrar, y `wrapKey` funciona igual.
+- La DEK de sesión no es extraíble. En Chrome `wrapKey` rechaza una llave no extraíble, así que un PIN nuevo se envuelve con una copia extraíble de un momento, que no se guarda. La sesión sigue sin poder exportarse.
 - La base guarda texto cifrado. La sal y los envoltorios tienen que estar en claro para poder abrir.
 - Un verificador cifrado (`ok: true`) confirma que la frase o el PIN abrieron la DEK correcta.
 - Cambiar la frase genera otra DEK y vuelve a cifrar registros y audios. Los respaldos y las invitaciones anteriores dejan de abrir.

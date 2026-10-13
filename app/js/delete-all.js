@@ -19,6 +19,7 @@ export async function deleteEverything(env) {
     memory.meta = null;
     memory.audioDraft = null;
     memory.pendingInvite = null;
+    memory.rewrappable = null;
     if (Array.isArray(memory.audioUrls) && env.revokeUrl) {
       for (const url of memory.audioUrls) env.revokeUrl(url);
       memory.audioUrls = [];
