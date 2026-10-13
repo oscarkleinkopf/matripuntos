@@ -81,4 +81,4 @@ Las notas de voz se graban en el teléfono, se cifran con la misma llave y se el
 
 ## Licencia
 
-MIT. Copyright (c) 2026 Oscar Kleinkopf. Ver `LICENSE`.
+MIT. Copyright (c) 2026 Osias Kleinkopf. Ver `LICENSE`.
