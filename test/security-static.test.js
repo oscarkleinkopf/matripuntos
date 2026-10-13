@@ -31,6 +31,21 @@ test("CSP forbids inline scripts and eval", () => {
   assert.match(CSP_META, /default-src 'none'/);
 });
 
+test("publish folder ships the same CSP header", () => {
+  const headers = readFileSync(new URL("../app/_headers", import.meta.url), "utf8");
+  const lines = headers.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  assert.deepEqual(lines, ["/*", `Content-Security-Policy: ${CSP_HEADER}`]);
+  assert.match(CSP_HEADER, /frame-ancestors 'none'/);
+});
+
+test("name fields use empty neutral placeholders", () => {
+  const source = readFileSync(new URL("../app/js/app.js", import.meta.url), "utf8");
+  assert.match(source, /placeholder: "Tu nombre"/);
+  assert.match(source, /placeholder: "Nombre de tu pareja"/);
+  assert.doesNotMatch(source, /placeholder: "(Yo|Mi pareja)"/);
+  assert.doesNotMatch(source, /"(Yo|Mi pareja)"/);
+});
+
 test("service worker shell files exist", () => {
   const sw = readFileSync(new URL("../app/sw.js", import.meta.url), "utf8");
   const paths = [...sw.matchAll(/"(\/[^"]*)"/g)].map((match) => match[1]);

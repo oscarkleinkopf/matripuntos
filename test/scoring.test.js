@@ -21,7 +21,7 @@ function complaint(partial) {
     aboutId: partial.aboutId,
     category: "platos",
     points: partial.points,
-    text: partial.text || "los platos",
+    text: partial.text || "texto",
     audioId: null,
     settledBy: partial.settledBy || null,
   };
@@ -91,7 +91,7 @@ test("settling zeroes the complaint and does not add points on top", () => {
     authorId: "b",
     complaintId: "c1",
     mode: "disculpa",
-    text: "los lavo yo",
+    text: "cierre",
   }, week.start + 7_200_000);
   const board = scoreboard(settled, NOW, TZ);
   assert.equal(board.week.scores.b, 0);
@@ -102,7 +102,7 @@ test("settling zeroes the complaint and does not add points on top", () => {
     authorId: "b",
     complaintId: "c1",
     mode: "gesto",
-    text: "otra vez",
+    text: "cierre-2",
   }, NOW), (error) => error.code === "settled");
 });
 
@@ -121,7 +121,7 @@ test("settling an old complaint does not change the new period", () => {
     authorId: "b",
     complaintId: "old",
     mode: "gesto",
-    text: "tarde, pero cerrado",
+    text: "cierre",
   }, NOW);
   const board = scoreboard(records, NOW, TZ);
   assert.equal(board.week.scores.a, 0);
@@ -133,7 +133,7 @@ test("gestures add points only to the author", () => {
     id: "g1",
     authorId: "b",
     points: 3,
-    text: "trajo café",
+    text: "gesto",
   }, NOW, TZ);
   const board = scoreboard(records, NOW, TZ);
   assert.equal(board.week.scores.b, 3);
@@ -159,7 +159,7 @@ test("daily complaint caps and point range", () => {
     aboutId: "b",
     category: "celular",
     points: 1,
-    text: "ya basta",
+    text: "texto",
   }, NOW, TZ), (error) => error.code === "cap_count");
 
   records = applyComplaint([], {
@@ -168,7 +168,7 @@ test("daily complaint caps and point range", () => {
     aboutId: "a",
     category: "platos",
     points: 5,
-    text: "primera",
+    text: "texto-1",
   }, NOW, TZ);
   records = applyComplaint(records, {
     id: "heavy2",
@@ -176,7 +176,7 @@ test("daily complaint caps and point range", () => {
     aboutId: "a",
     category: "platos",
     points: 5,
-    text: "segunda",
+    text: "texto-2",
   }, NOW, TZ);
   assert.throws(() => applyComplaint(records, {
     id: "heavy3",
@@ -184,7 +184,7 @@ test("daily complaint caps and point range", () => {
     aboutId: "a",
     category: "platos",
     points: 1,
-    text: "tercera",
+    text: "texto-3",
   }, NOW, TZ), (error) => error.code === "cap_points");
 
   assert.throws(() => applyComplaint([], {
@@ -193,7 +193,7 @@ test("daily complaint caps and point range", () => {
     aboutId: "a",
     category: "casa",
     points: 1,
-    text: "yo mismo",
+    text: "texto",
   }, NOW, TZ), (error) => error.code === "self");
 
   for (const points of [0, 6, 1.5]) {
@@ -203,7 +203,7 @@ test("daily complaint caps and point range", () => {
       aboutId: "b",
       category: "otro",
       points,
-      text: "no",
+      text: "texto",
     }, NOW, TZ), (error) => error.code === "points");
   }
 });
@@ -222,6 +222,6 @@ test("gesture daily ceiling", () => {
     id: "g-extra",
     authorId: "a",
     points: 1,
-    text: "otro",
+    text: "gesto-extra",
   }, NOW, TZ), (error) => error.code === "cap_gesture");
 });

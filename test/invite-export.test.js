@@ -19,12 +19,12 @@ test("invite carries setup ciphertext and never the passphrase", () => {
     wrappedDek: { iv: "aXY2aXY2aXY2", wrapped: "d3JhcHBlZC1rZXk=" },
     verifier: { iv: "aXY2aXY2aXY2", ciphertext: "Y2lwaGVydGV4dA==" },
     profile: { iv: "aXY2aXY2aXY2", ciphertext: "cHJvZmlsZQ==" },
-    passphrase: "caballo correcto secreto",
+    passphrase: "frase-prueba-01",
     pin: "123456",
   };
   const code = encodeInvite(meta);
   const json = new TextDecoder().decode(b64UrlToBytes(code.slice("mp1.".length)));
-  assert.equal(json.includes("caballo correcto secreto"), false);
+  assert.equal(json.includes("frase-prueba-01"), false);
   assert.equal(Object.hasOwn(JSON.parse(json), "passphrase"), false);
   assert.equal(Object.hasOwn(JSON.parse(json), "pin"), false);
   const decoded = decodeInvite(`#${code}`);
@@ -38,18 +38,17 @@ test("weak invites are rejected", () => {
 });
 
 test("encrypted export has no plaintext and plain export warns", async () => {
-  const secrets = await createVaultSecrets("una frase bastante larga", "123456", weak);
+  const secrets = await createVaultSecrets("frase-prueba-01", "123456", weak);
   const profile = await encryptJson(secrets.dek, {
-    nickA: "ApodoUnicoXylophone",
-    nickB: "OtroApodoUnico",
+    nickA: "Persona A",
+    nickB: "Persona B",
     autoLockMs: 120_000,
   }, PROFILE_AAD);
   const meta = buildMeta({ secrets, profile, createdAt: "2026-10-13T15:00:00.000Z" });
   const record = {
     id: "rec1",
     kind: "complaint",
-    text: "dejo los platos sucios otra vez",
-    points: 3,
+    text: "texto-queja",
   };
   const packed = await encryptJson(secrets.dek, record, record.id);
   const exported = buildEncryptedExport({
@@ -61,13 +60,14 @@ test("encrypted export has no plaintext and plain export warns", async () => {
   const json = JSON.stringify(exported);
   assert.equal(exported.encrypted, true);
   assert.equal(exported.pin, undefined);
-  assert.equal(json.includes("dejo los platos sucios otra vez"), false);
-  assert.equal(json.includes("ApodoUnicoXylophone"), false);
-  assert.equal(json.includes("una frase bastante larga"), false);
+  assert.equal(json.includes("texto-queja"), false);
+  assert.equal(json.includes("Persona A"), false);
+  assert.equal(json.includes("Persona B"), false);
+  assert.equal(json.includes("frase-prueba-01"), false);
   const parsed = parseEncryptedExport(json);
   assert.equal(parsed.records.length, 1);
   const plain = buildPlainExport({
-    profile: { nickA: "Yo" },
+    profile: { nickA: "Persona A" },
     records: [record],
     audios: [],
     exportedAt: "2026-10-13T16:00:00.000Z",

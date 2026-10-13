@@ -7,7 +7,7 @@ test("delete-all wipes memory, database, caches and service worker", async () =>
   const memory = {
     dek: { secret: true },
     records: [{ id: "1" }],
-    profile: { nickA: "Yo" },
+    profile: { nickA: "Persona A" },
     meta: { spaceId: "abc" },
     audioDraft: { id: "aud" },
     pendingInvite: { v: 1 },
