@@ -1,0 +1,16 @@
+{
+  "name": "Matripuntos",
+  "short_name": "Matripuntos",
+  "description": "Cuaderno cifrado de quejas y gestos para una pareja.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7f1ea",
+  "theme_color": "#c4543a",
+  "lang": "es-CL",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
