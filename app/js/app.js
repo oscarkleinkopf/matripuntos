@@ -103,21 +103,20 @@ function noteActivity() {
 }
 
 function nameOf(id) {
-  if (id === "a") return state.profile?.nickA || "Yo";
-  return state.profile?.nickB || "Mi pareja";
+  if (id === "a") return state.profile?.nickA || "Persona A";
+  return state.profile?.nickB || "Persona B";
 }
 
 function cleanProfile(input = {}) {
-  const nick = (value, fallback) => {
+  const nick = (value) => {
     const text = String(value ?? "").replace(/[\u0000-\u001F]/g, "").trim();
-    if (!text) return fallback;
     return [...text].slice(0, 24).join("");
   };
   const allowed = new Set(AUTOLOCK_CHOICES.map((choice) => choice.ms));
   const autoLockMs = Number(input.autoLockMs);
   return {
-    nickA: nick(input.nickA, "Yo"),
-    nickB: nick(input.nickB, "Mi pareja"),
+    nickA: nick(input.nickA),
+    nickB: nick(input.nickB),
     autoLockMs: allowed.has(autoLockMs) ? autoLockMs : AUTOLOCK_DEFAULT_MS,
   };
 }
@@ -373,8 +372,8 @@ function renderCreate(root) {
     field("Frase secreta", phrase.input, phrase.toggle),
     el("p", { class: "quiet", text: "Una frase larga que solo ustedes dos sepan. No la pongas en un chat. Si el navegador ofrece guardarla en una cuenta, esa copia sale del teléfono." }),
     field("Repite la frase", again.input, again.toggle),
-    field("Tu nombre en el marcador", el("input", { id: "nickA", maxlength: "24", placeholder: "Yo", autocomplete: "off" })),
-    field("El de tu pareja", el("input", { id: "nickB", maxlength: "24", placeholder: "Mi pareja", autocomplete: "off" })),
+    field("Tu nombre en el marcador", el("input", { id: "nickA", maxlength: "24", placeholder: "Tu nombre", autocomplete: "off" })),
+    field("El de tu pareja", el("input", { id: "nickB", maxlength: "24", placeholder: "Nombre de tu pareja", autocomplete: "off" })),
     el("p", { class: "quiet", text: "Son apodos, no hace falta el nombre real. Si invitas a tu pareja, verá estos mismos." }),
     field("PIN de este teléfono", pin),
     field("Repite el PIN", pin2),
@@ -1074,8 +1073,8 @@ async function onCompose(form, kind, complaint) {
 function renderSettings(root) {
   const form = el("form", { class: "stack" }, [
     errorLine(),
-    field("Tu nombre en el marcador", el("input", { id: "nickA", maxlength: "24", value: state.profile.nickA })),
-    field("El de tu pareja", el("input", { id: "nickB", maxlength: "24", value: state.profile.nickB })),
+    field("Tu nombre en el marcador", el("input", { id: "nickA", maxlength: "24", placeholder: "Tu nombre", autocomplete: "off", value: state.profile.nickA })),
+    field("El de tu pareja", el("input", { id: "nickB", maxlength: "24", placeholder: "Nombre de tu pareja", autocomplete: "off", value: state.profile.nickB })),
     el("label", { class: "field" }, [
       el("span", { text: "Cierre automático" }),
       el("select", { id: "lock" }, AUTOLOCK_CHOICES.map((choice) => el("option", {
