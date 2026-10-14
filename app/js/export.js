@@ -1,6 +1,6 @@
 import { MpError } from "./errors.js";
 import { MAX_AUDIOS, MAX_RECORDS } from "./constants.js";
-import { assertKdfIterations } from "./crypto.js";
+import { normalizeKdf } from "./crypto.js";
 
 export const ENCRYPTED_FORMAT = "matripuntos-backup";
 export const PLAIN_FORMAT = "matripuntos-plain";
@@ -25,12 +25,8 @@ export function buildEncryptedExport({ meta, records, audios, exportedAt }) {
     exportedAt,
     spaceId: meta.spaceId,
     createdAt: meta.createdAt,
-    kdf: {
-      name: meta.kdf.name,
-      hash: meta.kdf.hash,
-      iterations: meta.kdf.iterations,
-      salt: meta.kdf.salt,
-    },
+    epoch: Number.isInteger(meta.epoch) ? meta.epoch : 0,
+    kdf: normalizeKdf(meta.kdf),
     wrappedDek: { iv: meta.wrappedDek.iv, wrapped: meta.wrappedDek.wrapped },
     verifier: { iv: meta.verifier.iv, ciphertext: meta.verifier.ciphertext },
     profile: { iv: meta.profile.iv, ciphertext: meta.profile.ciphertext },
@@ -82,12 +78,8 @@ export function parseEncryptedExport(text) {
     exportedAt: typeof data.exportedAt === "string" ? data.exportedAt : "",
     spaceId: typeof data.spaceId === "string" ? data.spaceId : "",
     createdAt: typeof data.createdAt === "string" ? data.createdAt : new Date(0).toISOString(),
-    kdf: {
-      name: "PBKDF2",
-      hash: "SHA-256",
-      iterations: assertKdfIterations(data.kdf?.iterations),
-      salt: String(data.kdf?.salt ?? ""),
-    },
+    epoch: Number.isInteger(data.epoch) ? data.epoch : 0,
+    kdf: normalizeKdf(data.kdf),
     wrappedDek: { iv: String(data.wrappedDek?.iv ?? ""), wrapped: String(data.wrappedDek?.wrapped ?? "") },
     verifier: { iv: String(data.verifier?.iv ?? ""), ciphertext: String(data.verifier?.ciphertext ?? "") },
     profile: { iv: String(data.profile?.iv ?? ""), ciphertext: String(data.profile?.ciphertext ?? "") },

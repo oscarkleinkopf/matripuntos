@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { b64ToBytes, bytesToB64 } from "../app/js/bytes.js";
 import {
   AES,
+  ARGON2,
   KDF,
   createVaultSecrets,
   decryptJson,
@@ -71,10 +72,16 @@ test("a rewrap copy can receive a new PIN", async () => {
   assert.deepEqual(await decryptJson(opened.dek, packed, "caja"), { ok: 1 });
 });
 
-test("production KDF stays at the high iteration floor", async () => {
+test("production KDF floors stay high", async () => {
   assert.ok(KDF.iterations >= 600_000);
   assert.equal(KDF.hash, "SHA-256");
+  assert.equal(ARGON2.name, "Argon2id");
+  assert.ok(ARGON2.memoryKiB >= 19 * 1024);
+  assert.ok(ARGON2.iterations >= 2);
+  assert.equal(ARGON2.parallelism, 1);
   const secrets = await createVaultSecrets("frase-prueba-03", "654321");
+  assert.equal(secrets.kdf.v, 2);
+  assert.equal(secrets.kdf.name, "Argon2id");
   await unlockWithPassphrase(secrets, "frase-prueba-03");
   await assert.rejects(() => unlockWithPassphrase(secrets, "frase-prueba-04"));
 });

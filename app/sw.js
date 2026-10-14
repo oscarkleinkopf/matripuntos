@@ -1,4 +1,4 @@
-const CACHE = "matripuntos-shell-v3";
+const CACHE = "matripuntos-shell-v4";
 
 const SHELL = [
   "/",
@@ -9,6 +9,16 @@ const SHELL = [
   "/js/constants.js",
   "/js/bytes.js",
   "/js/crypto.js",
+  "/js/argon2.js",
+  "/js/pinned-file.js",
+  "/js/passphrase.js",
+  "/js/clipboard.js",
+  "/vendor/argon2id/setup.js",
+  "/vendor/argon2id/argon2id.js",
+  "/vendor/argon2id/blake2b.js",
+  "/vendor/argon2id/simd.wasm",
+  "/vendor/argon2id/no-simd.wasm",
+  "/vendor/diceware/eff-large-wordlist.txt",
   "/js/scoring.js",
   "/js/lock.js",
   "/js/delete-all.js",

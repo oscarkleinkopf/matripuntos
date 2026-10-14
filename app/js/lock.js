@@ -1,7 +1,14 @@
 export const PIN_LENGTH = 6;
 export const PIN_MAX_ATTEMPTS = 5;
-export const PIN_LOCKOUTS_MS = Object.freeze([60_000, 5 * 60_000, 15 * 60_000]);
+export const PIN_BACKOFF_BASE_MS = 30_000;
+export const PIN_BACKOFF_CAP_MS = 24 * 60 * 60 * 1000;
 export const PIN_WIPE_AFTER_LEVEL = 3;
+
+export function pinBackoffMs(level) {
+  const exponent = Math.max(0, Math.min(level, 16));
+  const wait = PIN_BACKOFF_BASE_MS * (2 ** exponent);
+  return Math.min(wait, PIN_BACKOFF_CAP_MS);
+}
 
 export function pinGate(pin, now) {
   if (!pin?.wrappedDek) return { allow: false, reason: "absent" };
@@ -37,7 +44,7 @@ export function registerPinFailure(pin, now) {
       remaining: 0,
     };
   }
-  const wait = PIN_LOCKOUTS_MS[Math.min(level, PIN_LOCKOUTS_MS.length - 1)];
+  const wait = pinBackoffMs(level);
   return {
     ...pin,
     failures: 0,

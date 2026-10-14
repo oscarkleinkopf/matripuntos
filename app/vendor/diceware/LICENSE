@@ -1,0 +1,11 @@
+EFF long wordlist (eff_large_wordlist.txt)
+
+Copyright (c) 2016 Electronic Frontier Foundation
+Licensed under Creative Commons Attribution 3.0 United States (CC BY 3.0 US).
+https://creativecommons.org/licenses/by/3.0/us/
+https://www.eff.org/diceware
+
+The file is unmodified: 7776 words, one dice roll and one word per line.
+SHA-256 of this file is pinned in app/js/passphrase.js.
+
+Matripuntos suggests passphrases from this English list. A Spanish list was not vendored. The Spanish lists in circulation are under the GNU Free Documentation License with cover texts, or they do not state a license clear enough to ship inside this MIT program. This notice keeps the organizational copyright of the English list.

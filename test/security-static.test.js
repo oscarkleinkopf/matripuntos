@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { CSP_HEADER, CSP_META } from "../scripts/csp.mjs";
+import { CSP_HEADER, CSP_META, renderNetlifyHeaders } from "../scripts/csp.mjs";
 
 const appDir = fileURLToPath(new URL("../app/", import.meta.url));
 
@@ -25,17 +25,23 @@ test("CSP forbids inline scripts and eval", () => {
   assert.match(CSP_HEADER, /script-src 'self'/);
   assert.match(CSP_HEADER, /frame-ancestors 'none'/);
   assert.doesNotMatch(CSP_META, /unsafe-inline/);
-  assert.doesNotMatch(CSP_META, /unsafe-eval/);
+  assert.doesNotMatch(CSP_META, /'unsafe-eval'/);
   assert.doesNotMatch(CSP_HEADER, /unsafe-inline/);
-  assert.doesNotMatch(CSP_HEADER, /unsafe-eval/);
+  assert.doesNotMatch(CSP_HEADER, /'unsafe-eval'/);
+  assert.match(CSP_HEADER, /'wasm-unsafe-eval'/);
+  assert.match(CSP_META, /'wasm-unsafe-eval'/);
   assert.match(CSP_META, /default-src 'none'/);
 });
 
-test("publish folder ships the same CSP header", () => {
+test("publish folder ships the security headers", () => {
   const headers = readFileSync(new URL("../app/_headers", import.meta.url), "utf8");
-  const lines = headers.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  assert.deepEqual(lines, ["/*", `Content-Security-Policy: ${CSP_HEADER}`]);
-  assert.match(CSP_HEADER, /frame-ancestors 'none'/);
+  assert.equal(headers, renderNetlifyHeaders());
+  assert.match(headers, /Content-Security-Policy: .*frame-ancestors 'none'/);
+  assert.match(headers, /Referrer-Policy: no-referrer/);
+  assert.match(headers, /Permissions-Policy: microphone=\(self\), camera=\(\), geolocation=\(\)/);
+  assert.match(headers, /X-Content-Type-Options: nosniff/);
+  assert.match(headers, /Cross-Origin-Opener-Policy: same-origin/);
+  assert.match(headers, /Cross-Origin-Resource-Policy: same-origin/);
 });
 
 test("name fields use empty neutral placeholders", () => {

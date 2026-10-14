@@ -1,0 +1,5 @@
+argon2id 1.0.1
+MIT. The copyright notice required by that license is the LICENSE file in this directory.
+The JavaScript and the two WebAssembly binaries are vendored. SHA-256 pins are in app/js/argon2.js and checked before the module is instantiated.
+The glue does not call eval or the Function constructor. WebAssembly.instantiate still needs script-src 'wasm-unsafe-eval' in browsers that separate it from 'unsafe-eval'. That token is not a general eval permission.
+This build imports a memory whose initial size is 1040 pages, about 65 MiB. Matripuntos does not raise that floor. Argon2id parameters for new spaces are documented in SECURITY.md.
